@@ -1,0 +1,51 @@
+{
+  "model_type": "gemma4",
+  "architectures": [
+    "Gemma4ForConditionalGeneration"
+  ],
+  "num_layers_config_key": "text_config.num_hidden_layers",
+  "vocab_size_config_key": "text_config.vocab_size",
+  "pre_weights": [
+    { "name": "model.language_model.embed_tokens.weight", "is_embed": true },
+    { "name": "model.embed_vision.embedding_projection.weight", "optional": true },
+    { "name": "model.vision_tower.std_bias", "optional": true },
+    { "name": "model.vision_tower.std_scale", "optional": true },
+    { "name": "model.vision_tower.patch_embedder.input_proj.weight", "optional": true },
+    { "name": "model.vision_tower.patch_embedder.position_embedding_table", "optional": true }
+  ],
+  "layer_templates": {
+    "weights": [
+      { "name": "model.language_model.layers.${layer_index}.self_attn.q_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.self_attn.k_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.self_attn.v_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.self_attn.o_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.self_attn.q_norm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.self_attn.k_norm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.mlp.gate_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.mlp.up_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.mlp.down_proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.input_layernorm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.post_attention_layernorm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.pre_feedforward_layernorm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.post_feedforward_layernorm.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.post_feedforward_layernorm_1.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.post_feedforward_layernorm_2.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.pre_feedforward_layernorm_2.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.router.per_expert_scale", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.router.proj.weight", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.router.scale", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.experts.gate_up_proj", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.experts.down_proj", "optional": true },
+      { "name": "model.language_model.layers.${layer_index}.layer_scalar", "optional": true }
+    ]
+  },
+  "post_weights": [
+    { "name": "model.language_model.norm.weight" },
+    { 
+      "name": "lm_head.weight", 
+      "is_embed": true, 
+      "optional": true,
+      "aliases": ["model.language_model.embed_tokens.weight"]
+    }
+  ]
+}
