@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Arcee AI
+# Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
@@ -10,7 +10,8 @@ from typing_extensions import Literal, TypeAlias
 from mergekit.common import ModelReference
 from mergekit.tokenizer.config import TokenizerConfig
 
-ScalarOrGradient: TypeAlias = Union[float, List[float]]
+## ScalarOrGradient: TypeAlias = Union[float, List[float]]
+ScalarOrGradient: TypeAlias = Union[float, str, bool, List[Union[float, str, bool]]]
 
 
 class ConditionalParameter(BaseModel):
@@ -23,9 +24,12 @@ ParameterSetting: TypeAlias = Union[
 ]
 
 
+## def evaluate_setting(
+##     tensor_name: str, setting: ParameterSetting, t: float = 0
+## ) -> Optional[float]:
 def evaluate_setting(
     tensor_name: str, setting: ParameterSetting, t: float = 0
-) -> Optional[float]:
+) -> Any:
     if isinstance(setting, (float, int, bool, str)):
         return setting
     elif isinstance(setting, list):

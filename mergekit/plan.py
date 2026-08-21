@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Arcee AI
+# Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
@@ -165,11 +165,19 @@ class MergePlanner:
         if weight.optional:
             # check if any input weights are present
             any_weight = False
+            #for model, w_in in zip(models, weights_in):
+            #    index = LoaderCache().get(model).index
+            #    if any(
+            #        name in index.tensor_paths
+            #        for name in [w_in.name] + (w_in.aliases or [])
+            #    ):
+            #        any_weight = True
+            #        break
             for model, w_in in zip(models, weights_in):
                 index = LoaderCache().get(model).index
                 if any(
                     name in index.tensor_paths
-                    for name in [w_in.name] + (w_in.aliases or [])
+                    for name in [w_in.name] + list(w_in.aliases or [])
                 ):
                     any_weight = True
                     break

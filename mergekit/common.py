@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Arcee AI
+# Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import binascii
@@ -46,7 +46,16 @@ def set_config_value(config: PretrainedConfig, key: str, value: Any):
 
 
 def get_config_value(config: PretrainedConfig, key: str) -> Any:
-    """Get a value from a PretrainedConfig object."""
+    """Get a value from a PretrainedConfig object, handling Gemma 4 nesting."""
+    # Gemma 4 / Multi-modal fix
+    if not hasattr(config, key) and hasattr(config, "text_config"):
+        inner_config = getattr(config, "text_config")
+        if isinstance(inner_config, dict):
+            if key in inner_config:
+                return inner_config[key]
+        elif hasattr(inner_config, key):
+            return getattr(inner_config, key)
+
     parts = key.split(".")
     obj = config
     for idx, part in enumerate(parts):
