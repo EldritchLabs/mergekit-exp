@@ -9,6 +9,31 @@ from mergekit.merge_methods.easy_define import merge_method
 from mergekit.merge_methods.generalized_task_arithmetic import (
     get_mask as sign_consensus_mask,
 )
+from mergekit.architecture import WeightInfo
+from mergekit.common import ModelReference
+import inspect
+
+
+def log_sce_audit(layer_name: str, base_name: str, donor_names: List[str], variances: List[float], select_topk: float):
+    bar_char = "█"
+    lines = [f"\n[SCE Audit] Layer: {layer_name} | select_topk={select_topk}"]
+    clean_base = base_name.split("\\")[-1].split("/")[-1][:50]
+    lines.append(f"  [BASE] {clean_base:<50}")
+    
+    total_var = sum(variances) if sum(variances) > 0 else 1.0
+    
+    for name, var in zip(donor_names, variances):
+        pct = (var / total_var) * 100
+        bar_len = int(max(0, min(50, pct / 2)))
+        bar = bar_char * bar_len
+        clean_name = name.split("\\")[-1].split("/")[-1][:50]
+        # lines.append(f"  {clean_name:<50}: {bar:<50} {pct:5.1f}% (Var: {var:.6f})")
+        lines.append(f"  {clean_name:<50}: {bar:<50} (Variance {pct:5.1f}%)")
+        
+    log_entry = "\n".join(lines)
+    print(log_entry)
+    with open("sce_audit.log", "a", encoding="utf-8") as f:
+        f.write(log_entry + "\n")
 
 
 @merge_method(
@@ -19,6 +44,8 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
 def sce_merge(
     tensors: List[torch.Tensor],
     base_tensor: torch.Tensor,
+    output_weight: WeightInfo,
+    base_model: ModelReference,
     int8_mask: bool = False,
     select_topk: float = 1.0,
 ) -> torch.Tensor:
@@ -30,6 +57,13 @@ def sce_merge(
     if select_topk < 1:
         mask = sce_mask(task_vectors, select_topk, mask_dtype)
         task_vectors = task_vectors * mask.unsqueeze(0)
+        
+        # --- LIVE AUDIT CHART ---
+        model_refs = inspect.currentframe().f_back.f_locals.get('model_refs')
+        donor_names =[str(m.model.path) for m in model_refs] if model_refs else [f"Donor_{i}" for i in range(len(tensors))]
+        variances =[torch.var(tv.float()).item() for tv in task_vectors]
+        log_sce_audit(output_weight.name, str(base_model.model.path), donor_names, variances, select_topk)
+        # ------------------------
 
     erase_mask = sign_consensus_mask(task_vectors, method="sum", mask_dtype=mask_dtype)
 

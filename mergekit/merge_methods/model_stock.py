@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -81,6 +82,15 @@ class ModelStockMergeTask(Task[torch.Tensor]):
         N = len(ws)
         t = (N * cos_theta) / (1 + (N - 1) * cos_theta)
 
+        # --- LIVE AUDIT CHART ---
+        t_scalar = t.mean().item()
+        base_name = str(self.base_model.model.path)
+        donor_names = [str(k.model.path) for k in tensors.keys() if k != self.base_model]
+        donor_names.sort() # Deterministic order
+        
+        log_model_stock_audit(self.weight_info.name, t_scalar, base_name, donor_names)
+        # ------------------------
+
         w_avg = sum(ws) / len(ws)
         w_h = t * w_avg + (1 - t) * w_0
 
@@ -134,3 +144,39 @@ class ModelStockMerge(MergeMethod):
             weight_info=output_weight,
             filter_wise=parameters["filter_wise"],
         )
+
+
+def log_model_stock_audit(layer_name: str, t_value: float, base_name: str, donor_names: List[str]):
+    """Prints and saves a bar chart of Model Stock interpolation."""
+    # t is the weight of the average of donors.
+    # (1-t) is the weight of the base.
+    # Each donor gets t / len(donors).
+    
+    n_donors = len(donor_names)
+    base_weight = 1.0 - t_value
+    donor_weight = t_value / n_donors if n_donors > 0 else 0.0
+    
+    bar_char = "█"
+    lines = [f"\n[Model Stock Audit] Layer: {layer_name} | t={t_value:.4f}"]
+    
+    # Base
+    pct = base_weight * 100
+    # Clamp bar length for visualization safety
+    bar_len = int(max(0, min(100, pct)) / 2)
+    bar = bar_char * bar_len
+    clean_base = base_name.split("\\")[-1].split("/")[-1][:60]
+    lines.append(f"  {clean_base:<60}: {bar:<50} ({pct:6.2f}%)")
+    
+    # Donors
+    for name in donor_names:
+        pct = donor_weight * 100
+        bar_len = int(max(0, min(100, pct)) / 2)
+        bar = bar_char * bar_len
+        clean_name = name.split("\\")[-1].split("/")[-1][:60]
+        lines.append(f"  {clean_name:<60}: {bar:<50} ({pct:6.2f}%)")
+
+    log_entry = "\n".join(lines)
+    print(log_entry)
+    
+    with open("model_stock_audit.log", "a", encoding="utf-8") as f:
+        f.write(log_entry + "\n")

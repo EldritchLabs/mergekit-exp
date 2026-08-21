@@ -128,6 +128,18 @@ class GTATask(Task[torch.Tensor]):
             tensors,
             tensor_parameters=self.tensor_parameters.data,
         )
+        
+        # --- LIVE AUDIT CHART ---
+        if tvs:
+            log_della_audit(
+                self.weight_info.name, 
+                self.base_model, 
+                tvs, 
+                self.lambda_, 
+                self.method.method_pretty_name
+            )
+        # ------------------------
+
         if not tvs:
             return base
 
@@ -252,3 +264,75 @@ def get_mask(
         raise RuntimeError(f'Unimplemented mask method "{method}"')
 
     return sign == majority_sign
+
+
+def log_della_audit(
+    layer_name: str, 
+    base_model: ModelReference, 
+    tvs: List[Dict[str, Any]], 
+    global_lambda: float,
+    method_name: str
+):
+    """Prints and saves a bar chart of DELLA/Task Arithmetic distribution based on actual Delta Norms."""
+    
+    base_name = str(base_model.model.path).split("\\")[-1].split("/")[-1][:50]
+    
+    bar_char = "█"
+    lines = [f"\n[{method_name} Audit] Layer: {layer_name} | Lambda={global_lambda:.2f}"]
+    lines.append(f"  [BASE] {base_name:<50}")
+
+    # 1. Calculate stats
+    stats = []
+    total_impact = 0.0
+    
+    for tv in tvs:
+        model_name = str(tv['model'].model.path).split("\\")[-1].split("/")[-1][:50]
+        weight = tv.get('weight', 0.0)
+        density = tv.get('density', 1.0)
+        epsilon = tv.get('epsilon', None)
+        delta = tv.get('delta', None)
+        
+        norm = 0.0
+        if delta is not None:
+            # Use float32 for norm calculation to be safe
+            norm = torch.norm(delta.float()).item()
+            
+        # Effective contribution magnitude = Weight * Norm
+        # This shows how much this model is actually moving the weights
+        impact = weight * norm
+        total_impact += impact
+            
+        stats.append({
+            'name': model_name,
+            'weight': weight,
+            'density': density,
+            'epsilon': epsilon,
+            'norm': norm,
+            'impact': impact
+        })
+
+    # Sort by name for consistent logs
+    stats.sort(key=lambda x: x['name'])
+
+    # 2. Generate bars
+    for s in stats:
+        # Calculate percentage relative to the sum of all impacts (Share of Voice)
+        pct = (s['impact'] / total_impact * 100) if total_impact > 0 else 0.0
+        
+        # Bar length (max 50 chars for 100%)
+        bar_len = int(max(0, min(50, pct / 2)))
+        bar = bar_char * bar_len
+        
+        # Format info string
+        # W=Weight, D=Density, N=DeltaNorm
+        info = f"W:{s['weight']:.2f} D:{s['density']:.2f} N:{s['norm']:.2f}"
+        if s['epsilon'] is not None:
+            info += f" E:{s['epsilon']:.2f}"
+            
+        lines.append(f"  {s['name']:<50}: {bar:<50} {pct:5.1f}% ({info})")
+
+    log_entry = "\n".join(lines)
+    print(log_entry)
+    
+    with open("della_audit.log", "a", encoding="utf-8") as f:
+        f.write(log_entry + "\n")
