@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Arcee AI
+# Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import importlib
@@ -52,7 +52,7 @@ class JsonModuleArchitecture(ModuleArchitecture, BaseModel, frozen=True):
                 obj_dict[key] = _template_substitution(
                     obj_dict[key], num_layers, layer_idx
                 )
-            elif isinstance(obj_dict[key], list):
+            elif isinstance(obj_dict[key], (list, tuple)):
                 obj_dict[key] = [
                     (
                         _template_substitution(s, num_layers, layer_idx)
