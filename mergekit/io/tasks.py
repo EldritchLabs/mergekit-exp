@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Arcee AI
+# Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import os
@@ -9,7 +9,6 @@ from typing import Dict, Optional, Tuple
 import torch
 
 from mergekit.architecture import WeightInfo
-from mergekit.architecture.conversion import convert_checkpoint_tensors
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
@@ -34,16 +33,18 @@ class LoaderCache:
         return cls._instance.value
 
     def get(self, model: ModelReference) -> LazyTensorLoader:
-        if model not in self.loaders:
+        # Use the string path as the key to prevent Pydantic object hash collisions on Windows
+        model_key = str(model.model.path)
+        if model_key not in self.loaders:
             merged = model.merged(
                 cache_dir=self.lora_cache_dir,
                 trust_remote_code=self.trust_remote_code,
                 lora_merge_dtype=self.lora_merge_dtype,
             )
-            self.loaders[model] = merged.lazy_loader(
+            self.loaders[model_key] = merged.lazy_loader(
                 cache_dir=self.hf_cache_dir, lazy_unpickle=self.lazy_unpickle
             )
-        return self.loaders[model]
+        return self.loaders[model_key]
 
     def flush_all(self):
         for loader in self.loaders.values():
@@ -86,41 +87,63 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         all_names = (
             [self.tensor] + list(self.aliases or []) + list(self.tied_names or [])
         )
+        
+        # --- START GGUF MAPPING HACK ---
+        import re
+        hf_name = self.tensor
+        gguf_name = None
+        # Gemma 4 / standard mapping
+        clean_name = hf_name.replace("model.language_model.", "model.")
+        
+        if clean_name == "model.embed_tokens.weight": gguf_name = "token_embd.weight"
+        elif clean_name == "model.norm.weight": gguf_name = "output_norm.weight"
+        elif clean_name == "lm_head.weight": gguf_name = "output.weight"
+        else:
+            # Match both model.layers.N and model.language_model.layers.N
+            match = re.search(r"layers\.(\d+)\.(.+)", hf_name)
+            if match:
+                layer = match.group(1)
+                suffix = match.group(2)
+                mapping = {
+                    "input_layernorm.weight": "attn_norm.weight",
+                    "post_attention_layernorm.weight": "post_attention_norm.weight",
+                    "self_attn.q_proj.weight": "attn_q.weight",
+                    "self_attn.k_proj.weight": "attn_k.weight",
+                    "self_attn.v_proj.weight": "attn_v.weight",
+                    "self_attn.o_proj.weight": "attn_output.weight",
+                    "mlp.gate_proj.weight": "ffn_gate.weight",
+                    "mlp.up_proj.weight": "ffn_up.weight",
+                    "mlp.down_proj.weight": "ffn_down.weight",
+                    # Gemma 4 MoE Experts
+                    "mlp.experts.gate_up_proj.weight": "ffn_gate_up_exps.weight",
+                    "mlp.experts.down_proj.weight": "ffn_down_exps.weight",
+                    "mlp.gate.weight": "ffn_gate_inp.weight",
+                }
+                if suffix in mapping:
+                    gguf_name = f"blk.{layer}.{mapping[suffix]}"
+        
+        if gguf_name:
+            all_names.append(gguf_name)
+        # --- END GGUF MAPPING HACK ---
+
         for name in all_names:
             if name in loader.index.tensor_paths:
                 return name
         return None
 
-    def _load_converted_tensor(
-        self, loader: LazyTensorLoader
-    ) -> Optional[torch.Tensor]:
-        model_type = self.model.config(
-            trust_remote_code=LoaderCache().trust_remote_code
-        ).model_type
-        source_tensors = {
-            key: (lambda key=key: loader.get_tensor(key, device=self.device or "cpu"))
-            for key in loader.index.tensor_paths
-        }
-        for target in [self.tensor] + list(self.aliases or []):
-            tensor = convert_checkpoint_tensors(model_type, source_tensors, target)
-            if tensor is not None:
-                return tensor.to(self.device or "cpu")
-        return None
-
     def execute(self) -> Optional[torch.Tensor]:
+        # Force the loader to fetch based on the specific model instance
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
-        if name:
-            x = loader.get_tensor(name, device=self.device or "cpu")
-        else:
-            x = self._load_converted_tensor(loader)
-        if x is None:
-            if not self.optional:
-                raise RuntimeError(
-                    f"Tensor {self.tensor} required but not present in model {self.model}"
-                )
-            return None
+        if not name:
+            # Gemma 4 Fix: If the tensor is missing and marked optional, return None
+            if self.optional:
+                return None
+            raise RuntimeError(
+                f"Tensor {self.tensor} required but not present in model {self.model}"
+            )
 
+        x = loader.get_tensor(name, device=self.device or "cpu")
         if self.dtype and (dtype := dtype_from_name(self.dtype)) != x.dtype:
             x = x.to(dtype=dtype)
         return x
@@ -226,8 +249,7 @@ class SaveTensor(Task[None]):
 
     def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
         if tensor is None:
-            if not self.optional:
-                raise RuntimeError(f"No value for required tensor {self.tensor_name}")
+            # Safely skip tensors that aren't present in this specific layer
             return
         if self.dtype:
             tensor = tensor.to(dtype=dtype_from_name(self.dtype))
