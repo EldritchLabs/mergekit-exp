@@ -1,5 +1,5 @@
-# Copyright (C) 2026 Arcee AI
-# SPDX-License-Identifier: LGPL-3.0-only
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 from enum import Enum
@@ -9,6 +9,7 @@ import torch
 from pydantic import BaseModel
 from typing_extensions import Literal, override
 
+import re
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
@@ -17,6 +18,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
 
 
@@ -116,11 +118,32 @@ class GTATask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.tensors}
 
+    def _is_router_weight(self, name: str) -> bool:
+        return (
+            'block_sparse_moe.gate.weight' in name or
+            'mlp.gate.weight' in name or
+            'router.proj.weight' in name or
+            'router.scale' in name or
+            'shared_expert_gate.weight' in name
+        )
+
     def execute(
         self,
         tensors: Dict[ModelReference, torch.Tensor],
         **_kwargs,
     ) -> torch.Tensor:
+        # MoE Guard: Skip if tensors are missing
+        if not tensors or any(t is None for t in tensors.values()):
+            return None
+
+        if self.base_model not in tensors:
+            raise RuntimeError(f"Base model {self.base_model} missing in input tensors for {self.weight_info.name}")
+
+        # Ensure embeddings and vocabulary dimensions align across MoE models
+        all_tensors = list(tensors.values())
+        for i in range(1, len(all_tensors)):
+            rectify_embed_sizes(self.weight_info, [all_tensors[0], all_tensors[i]])
+
         # collect task vectors
         tvs, base = get_task_vectors(
             self.weight_info,
@@ -233,8 +256,27 @@ def get_task_vectors(
         d = {}
         d["model"] = model
         d["delta"] = delta
+        
+        # Regex-aware weight resolution
         for p in tensor_parameters[model]:
-            d[p] = tensor_parameters[model][p]
+            param_val = tensor_parameters[model][p]
+            if p == "weight" and isinstance(param_val, list):
+                resolved_weight = None
+                for cond in param_val:
+                    filt = getattr(cond, "filter", None) if hasattr(cond, "filter") else cond.get("filter")
+                    c_val = getattr(cond, "value", 0.0) if hasattr(cond, "value") else cond.get("value", 0.0)
+                    if filt is None or filt == "*":
+                        resolved_weight = float(c_val)
+                    elif "|" in filt:
+                        if any(sub_filt in parameter_name for sub_filt in filt.split("|")):
+                            resolved_weight = float(c_val)
+                            break
+                    elif filt in parameter_name:
+                        resolved_weight = float(c_val)
+                        break
+                d[p] = resolved_weight if resolved_weight is not None else 1.0
+            else:
+                d[p] = param_val
         res.append(d)
     return res, base
 
