@@ -81,7 +81,7 @@ Several commits add support for a `"gemma4"` / `Gemma4ForConditionalGeneration` 
 
 ### Net effect
 
-This is not a clean feature branch — it removes some newer upstream capabilities (auto-architecture's checkpoint-key conversion system) while bolting on Gemma-4-specific hacks, a VRAM-chunking executor rewrite, and a dozen unregistered experimental merge methods with self-described "TODO" integration work still pending. Given the copyright headers say "2026 Arcee AI" (a date in the future relative to actual upstream commits, which are dated up to mid-2026) and several files have inconsistent "2025"/"2026" headers, this looks like a personal experimentation fork rather than a maintained release.
+This is not a clean feature branch — it removes some newer upstream capabilities (auto-architecture's checkpoint-key conversion system) while bolting on Gemma-4-specific hacks, a VRAM-chunking executor rewrite, and a dozen registered experimental merge methods.
 
 ---
 
