@@ -9,6 +9,8 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
 )
+
+## <official>
 from mergekit.merge_methods.karcher import KarcherMerge
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
@@ -16,8 +18,21 @@ from mergekit.merge_methods.nuslerp import NuSlerpMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.sparsify import SparsificationMethod
+## </official>
+
+## <custom>
+# from mergekit.merge_methods.dmt_scaffold import dmt_scaffold_merge
+from mergekit.merge_methods.lrp import LRPMerge
+from mergekit.merge_methods.moe_karcher import MoEKarcherMerge  
+from mergekit.merge_methods.moe_slerp import MoESlerpMerge
+from mergekit.merge_methods.moe_della import MoEDellaMerge
+from mergekit.merge_methods.moe_sce import MoESCEMerge
+from mergekit.merge_methods.multi_fusion import MultiFusionMerge
+from mergekit.merge_methods.pcb import PCBMerge
+## </custom>
 
 STATIC_MERGE_METHODS: List[MergeMethod] = [
+    ## <official>
     LinearMerge(),
     SlerpMerge(),
     NuSlerpMerge(),
@@ -25,6 +40,17 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     ModelStockMerge(),
     ArceeFusionMerge(),
     KarcherMerge(),
+    ## </official>
+    ## <custom>
+    # dmt_scaffold_merge(),
+    LRPMerge(),
+    MoEKarcherMerge(),
+    MoESlerpMerge(),
+    MoEDellaMerge(),
+    MoESCEMerge(),
+    MultiFusionMerge(),
+    PCBMerge(),
+    ## </custom>
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,
