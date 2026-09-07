@@ -1,3 +1,131 @@
+# mergekit-exp
+*AI analysis of the updates followed by the original mergekit readme.*
+
+## Summary
+
+`mergekit-exp` is a fork of Arcee AI's `mergekit` that adds a large number of new **experimental merge methods**, plus supporting infrastructure like MoE-aware task variants, support for new architectures like **Gemma 4**, and a simplified method-definition API.
+
+---
+
+## New Merge Methods
+
+| Method | File | Idea |
+|---|---|---|
+| BCR (Barycentric Conflict Resolution) | `bcr.py` | Resolves sign conflicts via weighted barycentric mean instead of discarding, using a `dominance` factor <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/bcr.py" start="1-33" end="1-33" /> |
+| BRF (Barycentric Resonance Flow) | `brf.py` | Multi-stage: resonance analysis, BCR-style conflict resolution, Karcher-mean-grounded directional flow <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/brf.py" start="35-49" end="35-49" /> |
+| MoE-Karcher | `moe_karcher.py` | Blends MoE experts via geometric (Karcher) mean, with router-weight handling strategies <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_karcher.py" start="1-24" end="1-24" /> |
+| MoE-DELLA | `moe_della.py` | MoE-aware DELLA magnitude pruning + TIES sign consensus on experts <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_della.py" start="1-29" end="1-29" /> |
+| MoE-SLERP | `moe_slerp.py` | Spherical interpolation between exactly two MoE models' experts <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_slerp.py" start="1-25" end="1-25" /> |
+| SCF (Selective Coherence Fusion) | `scf.py` | Two-stage: SCE-style variance selection, then Arcee-Fusion-style importance scoring/thresholding <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/scf.py" start="1-57" end="1-57" /> |
+| SCREAM | `scream.py` | Combines Model Stock, DELLA, and SCE components with weighted blending <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/scream.py" start="1-45" end="1-45" /> |
+| LRP (Layer-wise Relevance Propagation) merge | `lrp.py` | Uses `[Delta] * Variance(Delta)` "self-relevance" proxy, with "MAGIC" sign-inversion mode <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/lrp.py" start="27-36" end="27-36" /> |
+| Multi-Fusion | `multi_fusion.py` | Dynamic-threshold (Tukey fence) fusion mask over multiple importance metrics (`kl_div`, `delta_mag`, `cosine_sim`, `fisher_grad`) <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/multi_fusion.py" start="1-19" end="1-19" /> |
+| PCB (Parameter Competition Balancing) | `pcb.py` | Uses intra-model/inter-model importance (`b_intra`, `b_inter`) to weight task vectors (per wiki) |
+| QLIPHOTH v2 | `qliphoth.py` | Orthogonal-injection method with SVD rank, stability checks, deviation bounds <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/qliphoth.py" start="85-104" end="85-104" /> |
+
+## The `easy_define` API
+
+A significant piece of new infrastructure is the `@merge_method` decorator in `mergekit/merge_methods/easy_define.py`, which lets a plain Python function (with `tensors: List[torch.Tensor]` and optional `base_tensor`) be auto-wrapped into a full `MergeMethod`/`Task` pair <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/easy_define.py" start="26-49" end="26-49" />. Nearly all of the custom methods (`bcr.py`, `scf.py`, `scream.py`, `brf.py`) use this decorator instead of hand-writing a `MergeMethod`/`Task` subclass <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/nearswap.py" start="11-18" end="11-18" />, <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/ram.py" start="11-15" end="11-15" />. This is a developer-experience/graph-construction change: instead of manually building `Task` subclasses like `MoEKarcherTask` <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_karcher.py" start="55-74" end="55-74" />, method authors write a plain function and decorate it.
+
+## MoE Task/Graph Additions
+
+The MoE-aware methods (`MoEKarcherTask`, `MoEDellaTask`, `MoESlerpTask`) all inherit from `Task` in `mergekit/graph.py` (the core task-graph system) and add expert/router-detection logic not present in standard (non-MoE) merge methods — e.g. `_is_expert_weight` and `_is_router_weight` regex matching in `MoEKarcherTask` <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_karcher.py" start="76-94" end="76-94" />, and per-router strategy handling (`average`, `karcher`, `first`, `random_init`) <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/moe_karcher.py" start="126-138" end="126-138" />. This is graph-level: these `Task` subclasses plug into the same `arguments()`/`execute()`/`group_label()` interface as core tasks, e.g. `KarcherTask` <cite repo="EldritchLabs/mergekit-exp" path="mergekit/merge_methods/karcher.py" start="20-38" end="20-38" />, so they integrate into the existing merge planning/execution graph without altering its core mechanics.
+
+## Summary of differences: `mergekit-exp` vs. official `arcee-ai/mergekit`
+
+`mergekit-exp` (EldritchLabs) forks the official `arcee-ai/mergekit` at roughly the `a6e40288` commit (June 2026) and layers on a set of experimental changes across 5 recent "Add files via upload" commits [1](#0-0) . The changes fall into three buckets: **new experimental merge methods**, **graph/executor rewrites** for low-VRAM execution, and a handful of **compatibility patches/hacks** (notably for a "Gemma 4" architecture that doesn't exist in the upstream repo).
+
+### 1. New merge methods added
+
+All added in `mergekit/merge_methods/`, most headed with `# mergekit/merge_methods/X.py by Naphula`:
+
+- **`bcr.py`** — Barycentric Conflict Resolution: TIES-style consensus for agreeing task-vector signs, and a weighted barycentric mean (using a per-model `dominance` factor) for conflicting signs, instead of simply discarding conflicts [2](#0-1) .
+- **`brf.py`** — Barycentric Resonance Flow: a 3-stage method (spatial/spectral "resonance" similarity analysis → BCR-style conflict resolution → directional flow rescaled by a true Riemannian/Karcher-mean magnitude) [3](#0-2) .
+- **`delerp.py`** — Decomposed Linear Interpolation (originally by "GrimJim", "Modified by Naphula to fix various bugs"): splits direction (NLERP) from magnitude (max norm) [4](#0-3) .
+- **`lrp.py`** — LRP Merge: uses a "Layer-wise Relevance Propagation" proxy (`|delta| * variance(delta)`) to select top-k important weights per model, with an optional "MAGIC" sign-inversion mode for conflicting deltas [5](#0-4) .
+- **`moe_della.py`** — MoE-aware DELLA: applies DELLA magnitude pruning + TIES sign consensus per-expert for MoE models, with configurable router-merging strategy (`della`/`average`/`first`/`random_init`) [6](#0-5) .
+- **`moe_karcher.py`** — MoE-aware Karcher mean merge, blending corresponding experts geometrically with the same router-strategy options [7](#0-6) .
+- **`moe_slerp.py`** — MoE-aware SLERP for exactly 2 MoE models, with per-expert SLERP and configurable router strategy [8](#0-7) .
+- **`multi_fusion.py`** — Dynamic-threshold fusion using Tukey-fence (IQR-based) outlier detection to build an importance/fusion mask [9](#0-8) .
+- **`pcb.py`** — Parameter Competition Balancing (this one is *not* Naphula's — it carries the original arXiv-2410.02396 implementation license header from Charles O. Goddard) [10](#0-9) .
+- **`qliphoth.py`** — "QLIPHOTH v2": orthogonal task-vector injection against a "rival" consensus with conservative SVD-based null-space projection, adaptive variance scaling, and a stability/deviation safety clamp [11](#0-10) .
+- **`scf.py`** — Selective Coherence Fusion: two-stage filter combining SCE-style variance masking with Arcee-Fusion-style KL-divergence importance scoring [12](#0-11) .
+- **`scream.py`** — "SCREAM": blends Model Stock, DELLA, and SCE components into one weighted merge [13](#0-12) .
+
+These new methods are **now wired directly into the method registry** and are selectable via YAML config out of the box.
+
+### 2. Modifications to existing methods
+
+- **`generalized_task_arithmetic.py`** (used by TIES/DELLA/task-arithmetic methods) — adds a `log_della_audit()` function that prints/writes a bar-chart-style audit log of task-vector norms/weights/densities per layer to `della_audit.log` [1](#0-0) .
+- **`model_stock.py`** — similarly adds a `log_model_stock_audit()` writing to `model_stock_audit.log`, showing base vs. donor interpolation weight (`t`) per layer.
+- **`sce.py`** — modified (34 additions), presumably similar auditing/robustness tweaks.
+
+### 3. Core graph/execution engine rewrite (`mergekit/graph.py`, "graph_v18")
+
+The commit `05d95cec` ("Updated to graph_v18 and other fixes for Gemma 4") heavily rewrites `mergekit/graph.py` (769 additions/537 deletions) to add **adaptive VRAM-aware chunked execution**, targeted at low-VRAM GPUs like an RTX 3060 Ti (8GB) [14](#0-13) :
+
+- A large configuration block at the top of the file (`TARGET_VRAM_GB`, `VRAM_SAFETY_MARGIN_GB`, `CUDA_MAX_SPLIT_SIZE_MB`, `CHUNK_REDUCTION_FACTOR`, `TASK_MULTIPLIERS`, etc.) hardcodes GPU-tuning knobs directly in source.
+- `Executor` gains `_get_adaptive_chunk_size`, `_execute_chunked`, and `_execute_with_fallback` methods implementing a multi-tier fallback: try full-GPU execution → adaptive chunking → fixed chunk-size list → CPU fallback, with OOM-triggered progressive chunk shrinking and power-of-2 alignment.
+- Task-specific VRAM multipliers are defined for made-up/experimental task names (`ModelStock`, `Karcher`, `Consensus`, `Prometheus`, `Tensorguard`) that don't correspond to anything in upstream `mergekit`, suggesting there are other in-progress/unlisted experimental tasks not fully shown in what was uploaded.
+- This is a significant divergence from upstream's simpler `Executor._run`/`_move_tensors` implementation, which has no chunking or VRAM-target logic at all [15](#0-14) .
+
+Related smaller fixes in the same commit: `mergekit/common.py::get_config_value` gains a fallback into `text_config` for nested/multimodal configs; `mergekit/sparsify.py::della_magprune` adds safety clamping of `density`/`epsilon` instead of raising a `ValueError`; `mergekit/plan.py` tweaks alias handling to accept tuples as well as lists.
+
+### 4. Gemma 4 support (unofficial/speculative)
+
+Several commits add support for a `"gemma4"` / `Gemma4ForConditionalGeneration` architecture that does not exist in upstream mergekit (upstream only has Gemma/Gemma2/Gemma3):
+
+- New file `mergekit/_data/architectures/gemma4.json` defining a MoE-capable Gemma-4-like layer template with vision-tower fields, packed experts (`experts.gate_up_proj`/`down_proj`), and a router [16](#0-15) .
+- `mergekit/architecture/auto.py` is regressed/rewritten to remove the newer upstream tensor-name/checkpoint-conversion logic (`can_convert_checkpoint_keys`, `convert_checkpoint_tensors`) and hardcode `optional = True` for every weight plus force `tied_keys = None`, with a comment: *"Force untying for Gemma 4 configurations to ensure lm_head is compiled"* and *"Gemma 4 alternates attention types; tensors present in layer 0 may be missing in layer 5"* [17](#0-16) .
+- `mergekit/io/tasks.py` adds a hardcoded "GGUF MAPPING HACK" translating HF tensor names to GGUF-style names (`token_embd.weight`, `blk.N.attn_q.weight`, etc.) and changes the `LoaderCache` key to use the string model path instead of the `ModelReference` object "to prevent Pydantic object hash collisions on Windows" [18](#0-17) . It also silently skips missing required tensors instead of raising `RuntimeError`.
+
+### Net effect
+
+This is not a clean feature branch — it removes some newer upstream capabilities (auto-architecture's checkpoint-key conversion system) while bolting on Gemma-4-specific hacks, a VRAM-chunking executor rewrite, and a dozen unregistered experimental merge methods with self-described "TODO" integration work still pending. Given the copyright headers say "2026 Arcee AI" (a date in the future relative to actual upstream commits, which are dated up to mid-2026) and several files have inconsistent "2025"/"2026" headers, this looks like a personal experimentation fork rather than a maintained release.
+
+---
+
+Comparing your pasted snippet to the current `GeneralizedTaskArithmeticMerge`/`GTATask` implementation in `mergekit/merge_methods/generalized_task_arithmetic.py`, the proposed update adds four things that don't exist in the current GTA code:
+
+1. **MoE-safety guard** — skips execution early if any input tensor is `None`/missing, and raises a clear `RuntimeError` if the `base_model` tensor isn't present, instead of failing silently or with an obscure `KeyError`.
+2. **Embedding-size rectification** — calls `rectify_embed_sizes` across all input tensors before computing deltas, so mismatched vocabulary/embedding sizes across MoE models don't crash the merge.
+3. **Router-weight detection** — a new `_is_router_weight` helper method recognizing MoE gate/router parameter names.
+4. **Regex/filter-aware per-model weight resolution** — in `get_task_vectors`, instead of a flat `d[p] = tensor_parameters[model][p]` assignment, the new code lets the `weight` parameter be a *list of filter/value conditions*, resolving the effective weight based on substring or `|`-delimited pattern matches against the tensor's name (falling back to `1.0` if nothing matches).
+
+---
+
+### Detailed breakdown
+
+#### 1. MoE guard + base_model check
+Currently, `GTATask.execute` goes straight into `get_task_vectors` without checking for missing tensors. Your proposal inserts explicit guards:
+```python
+if not tensors or any(t is None for t in tensors.values()):
+    return None
+if self.base_model not in tensors:
+    raise RuntimeError(...)
+```
+This mirrors defensive patterns already used elsewhere in the codebase, e.g. `MoEDellaTask.execute`'s own guard `if not tensors or any(t is None ...)` and base-model check.
+
+#### 2. `rectify_embed_sizes` integration
+The current GTA implementation has no embedding-size handling at all in `execute()` — mismatches are only handled inside `get_task_vectors` by truncating embed weights when `weight_info.is_embed`. The proposal imports and calls `rectify_embed_sizes` directly in `execute()`, the same utility already used by `MoEDellaTask` to align vocab/embedding dims before diffing.
+
+#### 3. Router-weight detection (`_is_router_weight`)
+This method is added to `GTATask` but, notably, is **not called anywhere** in the pasted `execute()` body — it's defined but unused in what you shared. It closely parallels the router-detection logic already used in `MoEDellaMerge`'s task, `_is_router_weight`, but extends the pattern list with `router.proj.weight` and `router.scale`. Since it's unused, the "offer" here is essentially scaffolding for future router-aware branching in plain GTA (task_arithmetic/ties/dare/della), analogous to what `moe_della.py` already does for routing strategy (`average`, `first`, `random_init`, `della`).
+
+#### 4. Filter-based per-model weight resolution
+This is the most functionally significant addition. Today, `get_task_vectors` just copies whatever tensor parameter value was resolved upstream. The proposal instead lets `weight` be a list of `{filter, value}` conditions and resolves per-tensor:
+- `filter is None` or `"*"` → wildcard default
+- `filt` containing `"|"` → OR-matches any of the pipe-separated substrings against the parameter name
+- otherwise → plain substring match against `parameter_name`
+
+This would let a single merge config assign different `weight` values to different layers/modules (e.g., attention vs. MLP vs. router) within the same model entry, which the current `ConfigParameterDef(name="weight", required=True)` scalar/simple-list model doesn't support.
+
+## Notes
+- I compared your pasted code against the current `mergekit/merge_methods/generalized_task_arithmetic.py` as indexed in the `EldritchLabs/mergekit-exp` repo; the diffs above are the concrete "offers" of the update relative to that baseline.
+- The `_is_router_weight` addition appears incomplete/dead code in the snippet you shared (defined but never invoked in `execute()`), so I can't confirm its intended integration without seeing more of the file.
+
+---
+
 # mergekit
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
