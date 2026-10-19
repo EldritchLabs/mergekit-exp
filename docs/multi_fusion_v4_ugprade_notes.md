@@ -53,7 +53,7 @@ $$p(\text{expert } e \mid x) = \text{Softmax}(W_g \cdot x)_e$$
   kl_div = torch.sum(p * torch.log(p / q), dim=-1, keepdim=True)
   ```
   In Transformers (including Gemma-4, Mixtral, and Qwen), gate weight tensors are formatted as:
-  
+
 $$\text{Shape: } [\text{num\_experts}, \text{hidden\_dim}] \quad \text{or} \quad [\text{hidden\_dim}, \text{num\_experts}]$$
 
   * If the tensor is `[num_experts, hidden_dim]` (e.g., Gemma 4 / Mistral), taking `dim=-1` computes a softmax **across all 2,048 or 4,096 hidden input dimensions**, **not** across the experts!
