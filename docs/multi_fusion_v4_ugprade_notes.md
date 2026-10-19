@@ -149,7 +149,6 @@ Here are the `<<<< before` and `==== after >>>>` patch chunks to add a live visu
    ║ Global Metric Wins: MAG: 14 (38.9%) | SCE: 10 (27.8%) | KL: 6 (16.7%) | COS: 4 | FSH: 2 ║
    ```
 4. **Persistent JSON Telemetry**: Automatically saves running metric win counts to `multi_fusion_metric_stats.json` so you can analyze the distribution after the merge finishes.
-```
 
 ---
 
