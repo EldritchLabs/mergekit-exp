@@ -46,18 +46,20 @@ pareto_loss = dot_cancel * 2.0 + var_score * 0.05 + sparsity_penalty
 $$p(\text{expert } e \mid x) = \text{Softmax}(W_g \cdot x)_e$$
 
   A softmax across expert logits actually represents a categorical probability distribution.
+  
 * **Where Devin is wrong**: Look at how `kl_div` was calculated across matrices:
-  ```python
+```python
   p = F.softmax(donor.float(), dim=-1) + EPS
   q = F.softmax(base.float(), dim=-1) + EPS
   kl_div = torch.sum(p * torch.log(p / q), dim=-1, keepdim=True)
-  ```
-  In Transformers (including Gemma-4, Mixtral, and Qwen), gate weight tensors are formatted as:
+```
+  
+In Transformers (including Gemma-4, Mixtral, and Qwen), gate weight tensors are formatted as:
 
 $$\text{Shape: } [\text{num\_experts}, \text{hidden\_dim}] \quad \text{or} \quad [\text{hidden\_dim}, \text{num\_experts}]$$
 
-  * If the tensor is `[num_experts, hidden_dim]` (e.g., Gemma 4 / Mistral), taking `dim=-1` computes a softmax **across all 2,048 or 4,096 hidden input dimensions**, **not** across the experts!
-  * Furthermore, static gate weights are unconditioned on hidden state activations $x$. If the donor and base gates differ by a constant scale factor, their softmax distributions can diverge while their top-1/top-2 ranking of tokens remains completely identical.
+* If the tensor is `[num_experts, hidden_dim]` (e.g., Gemma 4 / Mistral), taking `dim=-1` computes a softmax **across all 2,048 or 4,096 hidden input dimensions**, **not** across the experts!
+* Furthermore, static gate weights are unconditioned on hidden state activations $x$. If the donor and base gates differ by a constant scale factor, their softmax distributions can diverge while their top-1/top-2 ranking of tokens remains completely identical.
 * **Conclusion**: We keep `kl_div` as a fast analytical router default, but provide `router_strategy: "pareto_auto"` so the Monte Carlo Pareto engine can automatically benchmark `kl_div`, `cosine_sim`, and `delta_mag` on gate tensors as well.
 
 ---
