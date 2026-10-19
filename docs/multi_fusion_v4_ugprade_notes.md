@@ -31,7 +31,7 @@ pareto_loss = dot_cancel * 2.0 + var_score * 0.05 + sparsity_penalty
 1. **Evaluating Raw Weights in Static Slices**: It only evaluated raw static weight coordinates on the first contiguous `8192` elements. For 2D projection matrices or stacked MoE experts, the first 8,192 elements represent just a fraction of the first few rows (e.g., token 0 in an embedding or expert 0's initial channels), ignoring the global manifold topology.
 2. **Hardcoded Sparsity Target (`0.25`)**: Penalizing `abs(sparsity_ratio - 0.25)` forced every layer to select roughly 25% of elements regardless of whether the layer needed 2% outlier grafting or 60% feature injection.
 3. **Discrete Metric Winner-Take-All**: It evaluated 5 discrete candidate masks and selected a single winner. It lacked continuous convex or Pareto blending across metrics.
-4. **No Functional Simulation of Output Manifolds**: As Vortex5 noted in the chat, evaluation should not just look at passive weight numbers. It should measure **signal preservation vs. noise amplification vs. directional distortion** through synthetic forward projection trials.
+4. **No Functional Simulation of Output Manifolds**: Evaluation should not just look at passive weight numbers. It should measure **signal preservation vs. noise amplification vs. directional distortion** through synthetic forward projection trials.
 
 ---
 
