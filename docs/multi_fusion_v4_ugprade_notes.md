@@ -42,7 +42,9 @@ pareto_loss = dot_cancel * 2.0 + var_score * 0.05 + sparsity_penalty
 
 #### The Verdict: **Partially True, but Architecturally Inverted.**
 * **Where Devin is right**: Unlike dense projections or MLP hidden activations (where weights are linear transformations, not probability distributions), router weights $W_g \in \mathbb{R}^{E \times D}$ directly compute routing logits:
+
 $$p(\text{expert } e \mid x) = \text{Softmax}(W_g \cdot x)_e$$
+
   A softmax across expert logits actually represents a categorical probability distribution.
 * **Where Devin is wrong**: Look at how `kl_div` was calculated across matrices:
   ```python
@@ -51,7 +53,9 @@ $$p(\text{expert } e \mid x) = \text{Softmax}(W_g \cdot x)_e$$
   kl_div = torch.sum(p * torch.log(p / q), dim=-1, keepdim=True)
   ```
   In Transformers (including Gemma-4, Mixtral, and Qwen), gate weight tensors are formatted as:
+  
 $$\text{Shape: } [\text{num\_experts}, \text{hidden\_dim}] \quad \text{or} \quad [\text{hidden\_dim}, \text{num\_experts}]$$
+
   * If the tensor is `[num_experts, hidden_dim]` (e.g., Gemma 4 / Mistral), taking `dim=-1` computes a softmax **across all 2,048 or 4,096 hidden input dimensions**, **not** across the experts!
   * Furthermore, static gate weights are unconditioned on hidden state activations $x$. If the donor and base gates differ by a constant scale factor, their softmax distributions can diverge while their top-1/top-2 ranking of tokens remains completely identical.
 * **Conclusion**: We keep `kl_div` as a fast analytical router default, but provide `router_strategy: "pareto_auto"` so the Monte Carlo Pareto engine can automatically benchmark `kl_div`, `cosine_sim`, and `delta_mag` on gate tensors as well.
@@ -68,7 +72,9 @@ In `v2b`, we replace the static slice evaluation with an **autonomous hierarchic
    Users can choose between rapid runs (`8` trials) or deep, multi-pass Pareto searches (`32`–`64` trials).
 3. **Multi-Metric Pareto Loss Function**:
    Evaluates each candidate mask $M$ through simulated forward passes:
+   
 $$\mathcal{L}_{\text{Pareto}} = w_{\text{drift}} \cdot \mathcal{E}_{\text{drift}} + w_{\text{noise}} \cdot \mathcal{E}_{\text{noise}} + w_{\text{rec}} \cdot \mathcal{E}_{\text{rec}}$$
+
    * **Base Manifold Preservation ($\mathcal{E}_{\text{drift}}$)**: Measures directional cosine drift of base representations under simulated projection vectors $x \sim \mathcal{N}(0, I)$.
    * **Noise Amplification ($\mathcal{E}_{\text{noise}}$)**: Penalizes high-frequency variance spikes in inactive orthogonal null-spaces.
    * **Donor Signal Recovery ($\mathcal{E}_{\text{rec}}$)**: Measures how effectively the donor's salient task-vector signal is transferred without overwriting base features.
@@ -200,6 +206,7 @@ Let $\mathbf{W}_{\text{base}} \in \mathbb{R}^{d_1 \times d_2}$ be the anchor mod
 
 ### 2.1 Task Vector Extraction and Anti-Monopoly Normalization
 Raw task vectors are formed by:
+
 $$\boldsymbol{\tau}_i = \mathbf{W}_i - \mathbf{W}_{\text{base}}, \quad \forall i \in \{1, \dots, N\}$$
 
 In unconstrained multi-donor merges, heavily fine-tuned models often exhibit task vector norms $\|\boldsymbol{\tau}_i\|_F$ an order of magnitude larger than conservative domain adaptations. When $p_{\text{mono}} < 1.0$, MultiFusion v4 applies a global energy compression:
@@ -212,6 +219,7 @@ When $p_{\text{mono}} = 1.0$, the original norms are preserved. Setting $p_{\tex
 Standard consensus schemes (e.g., TIES, DARE) erase or zero out weights where donor models disagree on the direction of gradient travel. Under `sce_inversion_mode = True`, MultiFusion v4 adopts an Aikido-inspired strategy: rather than nullifying dissenting energy, minority signs are reflected across the majority consensus plane:
 
 $$\mathbf{S}_{\text{maj}} = \text{sgn}\left(\sum_{i=1}^N \tilde{\boldsymbol{\tau}}_i\right)$$
+
 $$\hat{\boldsymbol{\tau}}_i = \begin{cases} -\tilde{\boldsymbol{\tau}}_i & \text{if } \text{sgn}(\tilde{\boldsymbol{\tau}}_i) \neq \mathbf{S}_{\text{maj}} \text{ and } \tilde{\boldsymbol{\tau}}_i \neq 0 \\ \tilde{\boldsymbol{\tau}}_i & \text{otherwise} \end{cases}$$
 
 This preserves high-frequency novelty energy while eliminating destructive directional cancellation.
@@ -242,27 +250,37 @@ MultiFusion v4 replaces the ad-hoc approximations of v1 with five mathematically
 ```
 
 ### 1. $L_1$ Magnitude Departure (`delta_mag`):
+
 $$S_{\text{mag}} = |\hat{\boldsymbol{\tau}}_i|$$
+
 Measures raw absolute parameter deviation from the base manifold, serving as the primary novelty metric utilized in TIES and DELLA.
 
 ### 2. Dimension-Calibrated Distributional Shift (`kl_div`):
+
 $$S_{\text{kl}} = |\mathbf{W}_i - \mathbf{W}_{\text{base}}| \odot \sum_{k} p_k \log\left(\frac{p_k}{q_k} + \epsilon\right)$$
+
 Where $p = \text{Softmax}(\mathbf{W}_i, \text{dim}=d)$ and $q = \text{Softmax}(\mathbf{W}_{\text{base}}, \text{dim}=d)$.
 
 * **MoE Dimension Correction:** In v1, softmax was blindly computed across `dim=-1`. In v4, router gate matrices (`*.gate.weight`) are inspected: if the tensor dimensions are structured as $[\text{num\_experts}, \text{hidden\_dim}]$ with $\text{dim}_0 \le 128$, the softmax is evaluated across $\text{dim}=0$. This guarantees that KL measures genuine **categorical expert routing probability shifts**, rather than meaningless normalization across the hidden input dimension.
 
 ### 3. Row-Wise Angular Divergence (`cosine_sim`):
 Unlike v1 (which computed a single global scalar dot product and broadcasted it across the entire matrix), v4 computes channel/row-wise angular divergence:
+
 $$S_{\text{cos}} = |\hat{\boldsymbol{\tau}}_{i, r}| \odot \left(2.0 - \frac{\langle \mathbf{W}_{i, r}, \mathbf{W}_{\text{base}, r} \rangle}{\|\mathbf{W}_{i, r}\|_2 \|\mathbf{W}_{\text{base}, r}\|_2 + \epsilon}\right)$$
+
 This aligns with Model Stock geometry: weights that execute sharp angular rotations relative to the base manifold receive proportionally higher saliency scores.
 
 ### 4. Channel-Wise Energy Variance (`variance_sce`):
+
 $$S_{\text{sce}} = |\hat{\boldsymbol{\tau}}_i| \odot \sqrt{\text{Var}_{\text{channel}}(\hat{\boldsymbol{\tau}}_i) + \epsilon}$$
+
 Evaluates the variance of parameter deltas within each functional neuron or channel, capturing structured activation dispersion.
 
 ### 5. Riemannian Tangent Energy Proxy (`fisher_grad`):
 In data-free merging, the true Fisher Information Matrix cannot be explicitly evaluated without calibration batches. MultiFusion v4 implements a Riemannian hyperspherical Log-Map proxy:
+
 $$S_{\text{fsh}} = |\mathbf{W}_i - \mathbf{W}_{\text{base}}| \odot \left(1.0 + \left\|\frac{\theta}{\sin\theta} \left(\hat{\mathbf{u}}_i - \cos\theta \hat{\mathbf{u}}_{\text{base}}\right)\right\|\right)$$
+
 Where $\hat{\mathbf{u}} = \mathbf{W} / \|\mathbf{W}\|_2$ and $\theta = \arccos(\langle \hat{\mathbf{u}}_i, \hat{\mathbf{u}}_{\text{base}} \rangle)$. This measures geodesic tangent energy along the Riemannian hypersphere.
 
 ---
@@ -275,11 +293,13 @@ Rather than forcing the practitioner to guess which metric suits a given layer, 
 To prevent GPU execution bottlenecks and avoid memory explosion on multi-billion parameter layers, the engine projects the target tensors onto a power-of-two strided subspace $\Omega_N$ ($N \in \{1024, 4096, 16384\}$):
 
 $$\text{stride} = \max\left(1, \left\lfloor \frac{\text{numel}(\boldsymbol{\tau})}{N} \right\rfloor\right)$$
+
 $$\Omega_N = \{ j \cdot \text{stride} \mid j \in [0, N-1] \}$$
 
 $$\mathbf{W}_{\text{sub}} = \mathbf{W}[\Omega_N], \quad \boldsymbol{\tau}_{\text{sub}} = \boldsymbol{\tau}[\Omega_N]$$
 
 The candidate importance fields $\{S_m\}_{m=1}^5$ are precomputed on $\Omega_N$ and $L_2$-normalized:
+
 $$\tilde{S}_m = \frac{S_m}{\|S_m\|_2 + \epsilon}$$
 
 ### 4.2 Continuous Dirichlet Stochastic Exploration
@@ -288,9 +308,11 @@ The engine executes a baseline evaluation across all five pure metrics ($\vec{\a
 $$\vec{\alpha}^{(t)} \sim \text{Dirichlet}(\mathbf{1}_5), \quad \sum_{m=1}^5 \alpha_m^{(t)} = 1$$
 
 Simultaneously, the Tukey IQR fence is jittered to explore threshold sensitivity:
+
 $$\eta^{(t)} \sim \mathcal{U}(\text{fence} - 0.3, \text{fence} + 0.3)$$
 
 The candidate subspace mask is generated via lock-free deterministic quantiles:
+
 $$\mathbf{M}_{\text{sub}}^{(t)} = \mathbb{I}\left( \sum_{m=1}^5 \alpha_m^{(t)} \tilde{S}_m \ge Q_2 + \eta^{(t)} (Q_3 - Q_1) \right)$$
 
 ### 4.3 Multi-Objective Compound Pareto Loss
@@ -299,12 +321,19 @@ Each candidate mask $\mathbf{M}_{\text{sub}}^{(t)}$ synthesizes a candidate tens
 $$\mathcal{L}_{\text{Pareto}} = 2.5 \cdot \mathcal{E}_{\text{drift}} + 1.2 \cdot \mathcal{E}_{\text{rec}} + 0.4 \cdot \mathcal{E}_{\text{noise}} + 0.02 \cdot \mathcal{R}_{\text{sparsity}}$$
 
 1. **Base Manifold Directional Drift ($\mathcal{E}_{\text{drift}}$):** Prevents degradation of core foundational representations:
+
 $$\mathcal{E}_{\text{drift}} = 1.0 - \frac{\langle \mathbf{W}_{\text{fused, sub}}, \mathbf{W}_{\text{base, sub}} \rangle}{\|\mathbf{W}_{\text{fused, sub}}\|_2 \|\mathbf{W}_{\text{base, sub}}\|_2 + \epsilon}$$
+
 2. **Donor Novelty Signal Recovery ($\mathcal{E}_{\text{rec}}$):** Measures whether salient donor features survived gating:
+
 $$\mathcal{E}_{\text{rec}} = \frac{\|(\mathbf{W}_{\text{donor, sub}} - \mathbf{W}_{\text{base, sub}}) - (\mathbf{W}_{\text{fused, sub}} - \mathbf{W}_{\text{base, sub}})\|_2}{\|\mathbf{W}_{\text{donor, sub}} - \mathbf{W}_{\text{base, sub}}\|_2 + \epsilon}$$
+
 3. **Null-Space Noise Amplification ($\mathcal{E}_{\text{noise}}$):** Penalizes variance explosions in inactive regions:
+
 $$\mathcal{E}_{\text{noise}} = \frac{|\text{Var}(\mathbf{W}_{\text{fused, sub}} \odot (1 - \mathbf{M}_{\text{sub}})) - \text{Var}(\mathbf{W}_{\text{base, sub}})|}{\text{Var}(\mathbf{W}_{\text{base, sub}}) + \epsilon}$$
+
 4. **Regularized Sparsity Prior ($\mathcal{R}_{\text{sparsity}}$):** An asymmetric barrier function preventing trivial collapse into all-zero or all-one masks:
+
 $$\mathcal{R}_{\text{sparsity}} = \frac{1}{\bar{\mathbf{M}}_{\text{sub}} + 0.05} + \frac{1}{1.05 - \bar{\mathbf{M}}_{\text{sub}}}$$
 
 The optimal tuple $(\vec{\alpha}^*, \eta^*)$ minimizing $\mathcal{L}_{\text{Pareto}}$ is extracted and applied to the full-dimensional tensor.
