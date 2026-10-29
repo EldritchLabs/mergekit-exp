@@ -180,7 +180,7 @@ class MoEDellaTask(Task[torch.Tensor]):
             })
 
         # Trigger Audit HUD
-        if "mlp" in weight_name or "self_attn.q_proj" in weight_name or "lm_head" in weight_name:
+        if "mlp" in weight_name or "attn" in weight_name or "lm_head" in weight_name:
             log_moe_della_audit(weight_name, self.base_model, tvs, self.lambda_)
 
         # 1. Sparsify (DELLA Magnitude Pruning)
