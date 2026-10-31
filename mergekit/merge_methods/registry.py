@@ -22,6 +22,7 @@ from mergekit.sparsify import SparsificationMethod
 
 ## <custom>
 # from mergekit.merge_methods.dmt_scaffold import dmt_scaffold_merge
+from mergekit.merge_methods.karcher_stock import KarcherStockMerge
 from mergekit.merge_methods.lrp import LRPMerge
 from mergekit.merge_methods.moe_karcher import MoEKarcherMerge  
 from mergekit.merge_methods.moe_slerp import MoESlerpMerge
@@ -40,6 +41,7 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     ModelStockMerge(),
     ArceeFusionMerge(),
     KarcherMerge(),
+    KarcherStockMerge(),
     ## </official>
     ## <custom>
     # dmt_scaffold_merge(),
